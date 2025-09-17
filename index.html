@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>FIN-ED · Admin — เพิ่มผู้ใช้</title>
+  <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    *{ box-sizing:border-box }
+    body{
+      margin:0;
+      padding:clamp(0.75rem, 2.5vw, 2rem);
+      font-family:'Kanit',sans-serif;
+      background:#1e1e1e; color:#f1f1f1;
+    }
+    h1{ text-align:center; font-size:clamp(1.4rem, 4.5vw, 2.2rem); color:#ff2e80; margin:0 0 1.25rem }
+    .container{
+      width:min(960px,100%);
+      margin:auto; background:#2a2a2a;
+      padding:clamp(0.75rem, 2.5vw, 2rem);
+      border-radius:24px; box-shadow:0 12px 30px rgba(0,0,0,.5);
+    }
+    .row{ display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem }
+    .col{ flex:1 1 46%; min-width:220px; display:flex; flex-direction:column; gap:.5rem }
+    label{ color:#bfbfbf }
+    input, select, button{
+      padding:.9rem 1rem; font-size:16px;
+      border-radius:12px; border:1px solid #555;
+      background:#1e1e1e; color:#fff; min-height:44px
+    }
+    button{
+      background:#ff2e80; font-weight:700; border:none; cursor:pointer;
+      transition:background .2s, transform .12s; touch-action:manipulation
+    }
+    @media (hover:hover) and (pointer:fine){
+      button:hover{ background:#e91e63; transform:translateY(-1px) }
+    }
+    button:disabled{ opacity:.65; cursor:not-allowed; transform:none }
+    .btn-ghost{ background:#3a3a3a }
+    .btn-green{ background:#00c896 } .btn-green:hover{ background:#00b386 }
+    .btn-blue{ background:#6c8cff } .btn-blue:hover{ background:#5d78e0 }
+
+    .card{ background:#242424; border:1px solid #3a3a3a; border-radius:18px; padding:1.25rem }
+    .muted{ color:#bfbfbf; font-size:.92rem }
+    .hidden{ display:none }
+
+    #alert{
+      position:fixed; left:50%; bottom:22px; transform:translateX(-50%);
+      background:#333; color:#fff; padding:.75rem 1.2rem; border-radius:12px;
+      opacity:0; transition:opacity .35s; pointer-events:none; z-index:210
+    }
+
+    /* Users table */
+    .table-viewport{ border:1px solid #3a3a3a; border-radius:14px; overflow:auto }
+    table{ width:100%; border-collapse:collapse; min-width:760px }
+    th, td{ padding:.85rem .75rem; border-bottom:1px solid #333; text-align:left; white-space:nowrap }
+    th{ color:#bfbfbf; position:sticky; top:0; background:#242424; z-index:1 }
+    td.actions{ display:flex; gap:.4rem; align-items:center; flex-wrap:wrap }
+
+    /* Loading overlay */
+    #overlay{
+      position:fixed; inset:0; background:rgba(0,0,0,.45);
+      display:none; align-items:center; justify-content:center; z-index:200
+    }
+    #overlay.show{ display:flex }
+    .spinner{
+      width:56px; height:56px; border:6px solid rgba(255,255,255,.35);
+      border-top-color:#fff; border-radius:50%; animation:spin 1s linear infinite
+    }
+    @keyframes spin{ to{ transform:rotate(360deg) } }
+
+    /* Warn styles */
+    .note-warn{ color:#ff6b6b; font-size:.9rem }
+    .error{ border-color:#ff6b6b !important; box-shadow:0 0 0 3px rgba(255,107,107,.25) }
+
+    /* Modal */
+    .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.55); z-index:220 }
+    .modal-backdrop.show{ display:flex }
+    .modal{ width:min(460px, 96vw); background:#2b2b2b; border:1px solid #3a3a3a; border-radius:16px; padding:1rem 1rem 1.25rem; box-shadow:0 20px 60px rgba(0,0,0,.6) }
+    .modal .title{ font-weight:700; margin-bottom:.75rem }
+    .modal .actions{ display:flex; gap:.5rem; justify-content:flex-end; margin-top:.75rem }
+
+    /* Mobile */
+    @media (max-width:768px){
+      .col{ flex:1 1 100% }
+      .row > .col:last-child button{ width:100% }
+      .table-viewport{ -webkit-overflow-scrolling:touch }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>FIN-ED · Admin</h1>
+
+    <!-- Password gate -->
+    <div class="card row">
+      <div class="col" style="flex:1 1 100%">
+        <label>รหัสผ่านผู้ดูแล</label>
+        <input id="adminPass" type="password" placeholder="ใส่ รหัสผ่าน เพื่อปลดล็อก" autocomplete="current-password"/>
+        <div id="passStatus" class="muted"></div>
+      </div>
+      <div class="col" style="flex:1 1 100%">
+        <button id="btnEnter" class="btn-green">🔓 เข้าสู่โหมดผู้ดูแล</button>
+      </div>
+      <div class="muted" style="margin-top:.25rem">* ความปลอดภัยจริงตรวจด้วย <b>ADMIN_KEY</b> ที่ฝั่ง GAS</div>
+    </div>
+
+    <!-- Admin panel -->
+    <div id="panel" class="hidden">
+
+      <div class="card">
+        <h2 style="margin:0 0 1rem">➕ เพิ่ม/อัปเดตผู้ใช้</h2>
+        <div class="row">
+          <div class="col">
+            <label>user_id</label>
+            <input id="uid" placeholder="เช่น kevin" autocomplete="off"/>
+            <div id="uidWarn" class="note-warn" style="display:none"></div>
+          </div>
+          <div class="col">
+            <label>display_name</label>
+            <input id="name" placeholder="เช่น Kevin" autocomplete="off"/>
+          </div>
+          <div class="col">
+            <label>PIN</label>
+            <input id="pin" inputmode="numeric" pattern="[0-9]*" placeholder="เช่น 1234" autocomplete="off"/>
+          </div>
+          <div class="col">
+            <label>สถานะ</label>
+            <select id="active">
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col">
+            <label>Fin-ed Mentor (พี่เลี้ยง)</label>
+            <input id="mentor" placeholder="เช่น Coach A / Mentor Bee" list="mentorList" autocomplete="off"/>
+            <datalist id="mentorList"></datalist>
+            <div id="mentorHint" class="muted" style="display:none">* ยังไม่พบคอลัมน์ <code>mentor</code> ในชีท Users — พิมพ์ชื่อได้ปกติ</div>
+            <div id="mentorChips" class="chips"></div>
+          </div>
+          <div class="col" style="align-self:flex-end">
+            <button id="btnLoadUsers" class="btn-ghost" style="width:100%">ดึงรายชื่อ & เติมรายชื่อ Mentor</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="btnSave" class="btn-green">บันทึกผู้ใช้</button>
+          <button id="btnList" class="btn-ghost">ดูรายชื่อ</button>
+          <button id="btnSeed" class="btn-ghost">Seed หมวดพื้นฐาน (global)</button>
+        </div>
+      </div>
+
+      <!-- Users list -->
+      <div id="usersCard" class="card hidden">
+        <h2 style="margin:0 0 1rem">👥 รายชื่อผู้ใช้</h2>
+        <div class="table-viewport">
+          <table id="usersTable">
+            <thead>
+              <tr>
+                <th style="width:160px">User ID</th>
+                <th>Display name</th>
+                <th style="width:120px">PIN</th>
+                <th style="width:120px">สถานะ</th>
+                <th>Mentor</th>
+                <th style="width:240px">การจัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="usersTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Modal: Reset PIN -->
+  <div id="pinBackdrop" class="modal-backdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
+      <div id="pinTitle" class="title">รีเซ็ต PIN</div>
+      <input type="hidden" id="pinUserId"/>
+      <div class="row" style="margin-bottom:.25rem">
+        <div class="col" style="min-width:100%">
+          <label>PIN ใหม่</label>
+          <input id="pinNew" placeholder="ตัวเลขเท่านั้น" inputmode="numeric" pattern="[0-9]*" autocomplete="off"/>
+        </div>
+      </div>
+      <div class="row" style="margin-bottom:.25rem">
+        <div class="col" style="min-width:100%">
+          <label>ยืนยัน PIN ใหม่</label>
+          <input id="pinConfirm" placeholder="พิมพ์ซ้ำอีกครั้ง" inputmode="numeric" pattern="[0-9]*" autocomplete="off"/>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btnPinCancel" class="btn-ghost">ยกเลิก</button>
+        <button id="btnPinSave" class="btn-green">บันทึก PIN</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="alert">แจ้งเตือน</div>
+  <div id="overlay"><div class="spinner" aria-hidden="true"></div></div>
+
+<script>
+  /***********************
+   * CONFIG
+   ***********************/
+  const API_URL   = 'https://script.google.com/macros/s/AKfycbznJMWIaEVx9NQurW2PO38SUQPSRoYFzSmhZCjNUIDJEFRLv1JmDC2XsQCoBUIlAbm8Uw/exec';
+  const ADMIN_KEY = 'FinedAdminKey_Prod_01';
+  const PAGE_PASS = '1888';
+
+  /***********************
+   * Helpers
+   ***********************/
+  const $ = s => document.querySelector(s);
+  function toast(msg, ok=true){
+    const el = $('#alert');
+    el.textContent = msg;
+    el.style.background = ok ? '#00c896' : '#d63031';
+    el.style.opacity = '1';
+    setTimeout(()=> el.style.opacity = '0', 2600);
+  }
+  function showOverlay(on){ $('#overlay').classList.toggle('show', !!on); }
+  async function call(path, payload){
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ path, payload, adminKey: ADMIN_KEY })
+    });
+    const text = await res.text();
+    try { return JSON.parse(text); }
+    catch(e){ console.error('RAW_RESPONSE:', text); throw new Error('NON_JSON'); }
+  }
+  function unlocked(){ return sessionStorage.getItem('finadmin') === 'ok'; }
+  function setUnlocked(v){ sessionStorage.setItem('finadmin', v ? 'ok' : 'no'); }
+  function updateGateUI(ok){
+    $('#passStatus').textContent = ok ? '🟢 เข้าสู่โหมดผู้ดูแลแล้ว' : '🔒 กรุณาใส่รหัสเพื่อใช้งาน';
+    $('#panel').classList.toggle('hidden', !ok);
+  }
+
+  // Mentor helpers
+  function detectMentorKey(list){
+    const candidates = ['mentor','mentor_name','mentor_id','mentorId','coach','advisor','finmentor','fin_ed_mentor'];
+    for (const k of candidates){
+      if (list.some(u => Object.prototype.hasOwnProperty.call(u, k))){
+        if (list.some(u => String(u[k]||'').trim() !== '')) return k;
+      }
+    }
+    return '';
+  }
+  const unique = arr => Array.from(new Set(arr));
+  const escHtml = (s='') => String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+
+  /***********************
+   * Duplicate user_id warning (top form)
+   ***********************/
+  function idSet(){ return new Set(usersCache.map(u => String(u.user_id||'').trim().toLowerCase())); }
+  function setUidWarning(show, msg=''){
+    const warn = $('#uidWarn');
+    const input = $('#uid');
+    warn.style.display = show ? 'block' : 'none';
+    warn.textContent = show ? msg : '';
+    input.classList.toggle('error', !!show);
+  }
+  $('#uid').addEventListener('input', ()=>{
+    const v = $('#uid').value.trim().toLowerCase();
+    if (!v){ setUidWarning(false); return; }
+    const exists = idSet().has(v);
+    setUidWarning(exists, exists ? 'user_id นี้มีในระบบแล้ว — การบันทึกจะอัปเดตผู้ใช้เดิม' : '');
+  });
+
+  function populateMentorUI(users){
+    const key = detectMentorKey(users);
+    const dl = $('#mentorList');
+    const chips = $('#mentorChips');
+
+    if (!key){
+      $('#mentorHint').style.display = 'block';
+      dl.innerHTML = '';
+      chips.innerHTML = '';
+      return;
+    }
+    $('#mentorHint').style.display = 'none';
+
+    const list = unique(
+      users.map(u => String(u[key]||'').trim()).filter(v => v && v !== '-')
+    ).sort((a,b)=> a.localeCompare(b,'th'));
+
+    dl.innerHTML = list.map(m => `<option value="${escHtml(m)}">`).join('');
+    chips.innerHTML = list.slice(0,12).map(m => `<span class="pill" style="margin:.25rem .25rem 0 0; display:inline-block; border:1px solid #444; border-radius:999px; padding:.2rem .55rem; font-size:.85rem">${escHtml(m)}</span>`).join('');
+    chips.querySelectorAll('.pill').forEach(el => {
+      el.addEventListener('click', ()=> { $('#mentor').value = el.textContent; });
+    });
+  }
+
+  /***********************
+   * Password gate
+   ***********************/
+  $('#btnEnter').addEventListener('click', async ()=>{
+    const p = $('#adminPass').value.trim();
+    const ok = (p === PAGE_PASS);
+    updateGateUI(ok); setUnlocked(ok);
+    toast(ok ? 'เข้าสู่โหมดผู้ดูแล' : 'รหัสผ่านไม่ถูกต้อง', ok);
+    if (ok){
+      try{
+        const j = await call('admin/list_users', {});
+        if (j.ok && Array.isArray(j.items)){ populateMentorUI(j.items); }
+      }catch(_){}
+    }
+  });
+  // restore
+  updateGateUI(unlocked());
+  (async () => {
+    if (unlocked()){
+      try{
+        const j = await call('admin/list_users', {});
+        if (j.ok && Array.isArray(j.items)){ populateMentorUI(j.items); }
+      }catch(_){}
+    }
+  })();
+
+  /***********************
+   * Users table (list + inline edit + reset PIN)
+   ***********************/
+  let usersCache = [];
+  let editingIndex = -1;
+
+  const maskPin = pin => {
+    const s = String(pin||'').trim(); if (!s) return '—';
+    return '•'.repeat(Math.min(6, Math.max(4, s.length)));
+  };
+  const sortUsersById = list =>
+    list.slice().sort((a,b)=> String(a.user_id||'').localeCompare(String(b.user_id||''), 'th', {sensitivity:'base'}));
+
+  function renderUsersTable(listRaw){
+    const list = sortUsersById(listRaw);
+    usersCache = list.slice();
+
+    // อัปเดตคำเตือนของช่อง uid (top form) ให้ถูกต้องตามข้อมูลล่าสุด
+    const cur = $('#uid').value.trim().toLowerCase();
+    if (cur){
+      const exists = idSet().has(cur);
+      setUidWarning(exists, exists ? 'user_id นี้มีในระบบแล้ว — การบันทึกจะอัปเดตผู้ใช้เดิม' : '');
+    } else {
+      setUidWarning(false);
+    }
+
+    const tb = $('#usersTbody');
+    tb.innerHTML = '';
+
+    list.forEach((u, idx) => {
+      const tr = document.createElement('tr');
+      const isEditing = (idx === editingIndex);
+
+      if (!isEditing){
+        tr.innerHTML = `
+          <td>${escHtml(u.user_id||'')}</td>
+          <td>${escHtml(u.display_name||'')}</td>
+          <td>${maskPin(u.pin)}</td>
+          <td>${String(u.is_active) === 'true' ? 'Active' : 'Inactive'}</td>
+          <td>${escHtml(u.mentor||'')}</td>
+          <td class="actions">
+            <button class="btn-blue" data-act="edit" data-idx="${idx}">แก้ไข</button>
+            <button class="btn-ghost" data-act="resetpin" data-idx="${idx}">รีเซ็ต PIN</button>
+          </td>
+        `;
+      } else {
+        tr.innerHTML = `
+          <td>
+            <input data-field="user_id" value="${escHtml(u.user_id||'')}" />
+            <div class="note-warn" data-warn style="display:none"></div>
+          </td>
+            <td><input data-field="display_name" value="${escHtml(u.display_name||'')}" /></td>
+            <td><input data-field="pin" inputmode="numeric" pattern="[0-9]*" value="${escHtml(u.pin||'')}" /></td>
+            <td>
+              <select data-field="is_active">
+                <option value="true" ${String(u.is_active)==='true'?'selected':''}>Active</option>
+                <option value="false" ${String(u.is_active)!=='true'?'selected':''}>Inactive</option>
+              </select>
+            </td>
+            <td><input data-field="mentor" list="mentorList" value="${escHtml(u.mentor||'')}" /></td>
+            <td class="actions">
+              <button class="btn-green" data-act="save" data-idx="${idx}">บันทึก</button>
+              <button class="btn-ghost" data-act="cancel" data-idx="${idx}">ยกเลิก</button>
+            </td>
+        `;
+      }
+      tb.appendChild(tr);
+    });
+
+    $('#usersCard').classList.toggle('hidden', list.length === 0);
+  }
+
+  // inline: ตรวจ user_id ซ้ำแบบ realtime
+  $('#usersTable').addEventListener('input', (e)=>{
+    const inp = e.target.closest('input[data-field="user_id"]');
+    if (!inp) return;
+    const tr = inp.closest('tr');
+    const warn = tr.querySelector('[data-warn]');
+    const idx = [...tr.parentNode.children].indexOf(tr);
+    const oldId = String(usersCache[idx]?.user_id||'');
+    const v = String(inp.value||'').trim().toLowerCase();
+    const exists = v && v !== oldId.toLowerCase() && idSet().has(v);
+
+    if (exists){
+      inp.classList.add('error');
+      warn.style.display = 'block';
+      warn.textContent = 'user_id นี้มีในระบบแล้ว เลือกชื่ออื่น';
+    }else{
+      inp.classList.remove('error');
+      warn.style.display = 'none';
+      warn.textContent = '';
+    }
+  });
+
+  // Table actions (edit/save/cancel/resetpin)
+  $('#usersTable').addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const act = btn.getAttribute('data-act');
+    const idx = Number(btn.getAttribute('data-idx'));
+    if (!Number.isInteger(idx)) return;
+
+    if (act === 'edit'){
+      editingIndex = idx;
+      renderUsersTable(usersCache);
+      return;
+    }
+    if (act === 'cancel'){
+      editingIndex = -1;
+      renderUsersTable(usersCache);
+      return;
+    }
+    if (act === 'save'){
+      const row = $('#usersTbody').children[idx];
+      if (!row) return;
+
+      const getVal = (name) => row.querySelector(`[data-field="${name}"]`)?.value?.trim() ?? '';
+      const newId = getVal('user_id');
+      const oldId = String(usersCache[idx].user_id||'');
+      const vlow = newId.toLowerCase();
+
+      if (!newId){
+        toast('ต้องกรอก user_id', false); return;
+      }
+      // กันซ้ำ: แจ้งเตือน + ไม่ให้บันทึก
+      if (vlow !== oldId.toLowerCase() && idSet().has(vlow)){
+        const uidInput = row.querySelector('[data-field="user_id"]');
+        const warn = row.querySelector('[data-warn]');
+        uidInput.classList.add('error');
+        warn.style.display = 'block';
+        warn.textContent = 'user_id นี้มีในระบบแล้ว เลือกชื่ออื่น';
+        toast('user_id นี้มีอยู่แล้วในระบบ', false);
+        uidInput.focus();
+        return;
+      }
+
+      const payload = {
+        user_id: newId,
+        display_name: getVal('display_name'),
+        pin: getVal('pin'),
+        is_active: row.querySelector('[data-field="is_active"]')?.value === 'true',
+        mentor: getVal('mentor')
+      };
+      if (!payload.pin){
+        toast('ต้องกรอก PIN', false);
+        return;
+      }
+
+      const oldTxt = btn.textContent;
+      btn.disabled = true; btn.textContent = '⏳ บันทึก...'; showOverlay(true);
+      try{
+        const j = await call('admin/upsert_user', payload);
+        if (j.ok){
+          toast('บันทึกสำเร็จ');
+          await loadUsers(true);
+        } else {
+          toast(j.error || 'ไม่สำเร็จ', false);
+        }
+      }catch(err){ toast('เรียก API ไม่สำเร็จ', false); }
+      finally{ btn.disabled = false; btn.textContent = oldTxt; showOverlay(false); }
+      return;
+    }
+
+    if (act === 'resetpin'){
+      const user = usersCache[idx];
+      if (!user || !user.user_id) return;
+      openPinModal(user.user_id);
+      return;
+    }
+  });
+
+  /***********************
+   * PIN reset modal
+   ***********************/
+  function openPinModal(userId){
+    $('#pinUserId').value = userId;
+    $('#pinNew').value = '';
+    $('#pinConfirm').value = '';
+    $('#pinBackdrop').classList.add('show');
+    $('#pinBackdrop').setAttribute('aria-hidden','false');
+    setTimeout(()=> $('#pinNew').focus(), 50);
+  }
+  function closePinModal(){
+    $('#pinBackdrop').classList.remove('show');
+    $('#pinBackdrop').setAttribute('aria-hidden','true');
+  }
+  $('#btnPinCancel').addEventListener('click', closePinModal);
+
+  function isNumericStr(s){ return /^[0-9]+$/.test(String(s||'')); }
+
+  $('#btnPinSave').addEventListener('click', async ()=>{
+    if (!unlocked()) return toast('ใส่รหัสก่อนใช้งาน', false);
+
+    const user_id = $('#pinUserId').value;
+    const pin1 = $('#pinNew').value.trim();
+    const pin2 = $('#pinConfirm').value.trim();
+
+    if (!pin1 || !pin2){ toast('กรอก PIN และยืนยัน PIN ให้ครบ', false); return; }
+    if (!isNumericStr(pin1) || !isNumericStr(pin2)){ toast('PIN ต้องเป็นตัวเลขเท่านั้น', false); return; }
+    if (pin1.length < 4 || pin1.length > 12){ toast('PIN ควรมี 4–12 หลัก', false); return; }
+    if (pin1 !== pin2){ toast('PIN กับยืนยัน PIN ไม่ตรงกัน', false); return; }
+
+    const btn = $('#btnPinSave');
+    const oldText = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳ บันทึก...'; showOverlay(true);
+
+    try{
+      // ใช้ endpoint เดิม: อัปเดตเฉพาะ PIN โดยส่งแค่ { user_id, pin }
+      const j = await call('admin/upsert_user', { user_id, pin: pin1 });
+      if (j.ok){
+        toast('รีเซ็ต PIN สำเร็จ');
+        closePinModal();
+        await loadUsers(true);
+      } else {
+        toast(j.error || 'รีเซ็ตไม่สำเร็จ', false);
+      }
+    }catch(err){
+      toast('เรียก API ไม่สำเร็จ', false);
+    }finally{
+      btn.disabled = false; btn.textContent = oldText; showOverlay(false);
+    }
+  });
+
+  /***********************
+   * Top actions
+   ***********************/
+  $('#btnLoadUsers').addEventListener('click', ()=> loadUsers());
+  $('#btnList').addEventListener('click',   ()=> loadUsers());
+
+  async function loadUsers(silent=false){
+    if (!unlocked()) return toast('ใส่รหัสก่อนใช้งาน', false);
+    if (!silent) showOverlay(true);
+    try{
+      const j = await call('admin/list_users', {});
+      if (j.ok && Array.isArray(j.items)){
+        editingIndex = -1;
+        renderUsersTable(j.items);
+        populateMentorUI(usersCache);
+        if (!silent) toast('โหลดรายชื่อสำเร็จ', true);
+      } else if (!silent){
+        toast(j.error || 'ไม่สำเร็จ', false);
+      }
+    }catch(err){
+      if (!silent) toast('เรียก API ไม่สำเร็จ', false);
+    }finally{
+      if (!silent) showOverlay(false);
+    }
+  }
+
+  // Save (top form) — กัน user_id ซ้ำล่วงหน้า + แจ้งเตือน
+  $('#btnSave').addEventListener('click', async ()=>{
+    if (!unlocked()) return toast('ใส่รหัสก่อนใช้งาน', false);
+
+    const userIdRaw = $('#uid').value.trim();
+    const userIdKey = userIdRaw.toLowerCase();
+    const exists = userIdKey && idSet().has(userIdKey);
+
+    const payload = {
+      user_id: userIdRaw,
+      display_name: $('#name').value.trim(),
+      pin: $('#pin').value.trim(),
+      is_active: $('#active').value === 'true',
+      mentor: $('#mentor').value.trim() || ''
+    };
+    if (!payload.user_id || !payload.pin){
+      toast('กรอก user_id และ PIN ก่อน', false);
+      return;
+    }
+
+    if (exists){
+      // แจ้งเตือนชัดเจนก่อนยืนยัน
+      setUidWarning(true, 'user_id นี้มีในระบบแล้ว — หากดำเนินการต่อ ระบบจะอัปเดตข้อมูลผู้ใช้เดิม');
+      toast('user_id นี้มีอยู่แล้วในระบบ', false);
+      const ok = confirm(`user_id "${payload.user_id}" มีอยู่แล้ว ต้องการอัปเดตผู้ใช้เดิมหรือไม่?`);
+      if (!ok){ $('#uid').focus(); return; }
+    } else {
+      setUidWarning(false);
+    }
+
+    const btn = $('#btnSave');
+    const oldText = btn.textContent;
+
+    btn.disabled = true;
+    btn.textContent = '⏳ กำลังบันทึก...';
+    showOverlay(true);
+
+    try{
+      const j = await call('admin/upsert_user', payload);
+      if (j.ok){
+        toast(j.created ? 'สร้างผู้ใช้แล้ว' : 'อัปเดตผู้ใช้แล้ว', true);
+        await loadUsers(true);
+      } else {
+        toast(j.error || 'ไม่สำเร็จ', false);
+      }
+    }catch(err){
+      toast('เรียก API ไม่สำเร็จ', false);
+    }finally{
+      btn.disabled = false;
+      btn.textContent = oldText;
+      showOverlay(false);
+    }
+  });
+
+  $('#btnSeed').addEventListener('click', async ()=>{
+    if (!unlocked()) return toast('ใส่รหัสก่อนใช้งาน', false);
+    showOverlay(true);
+    try{
+      const j = await call('admin/seed_categories', { preset: 'th-basic' });
+      toast(j.ok ? 'Seed หมวดสำเร็จ' : (j.error || 'ไม่สำเร็จ'), j.ok);
+    }catch(err){
+      toast('เรียก API ไม่สำเร็จ', false);
+    }finally{
+      showOverlay(false);
+    }
+  });
+</script>
+</body>
+</html>
